@@ -57,7 +57,8 @@ private:
   map<char, Option*> _short_names;
   
 public:
-  OptionParser(string prog): _progname{prog} {}
+  OptionParser(string prog, string help_spec = {}):
+    _progname{prog} {}
   
 private:
   // Parse a single-character argument
@@ -252,14 +253,27 @@ public:
     add_option(name, store_fn, desc);
   }
   
-  void print_usage(std::ostream& out)
-  {
-    const uint wrap_column = 80;
-    
-    std::ostringstream opts_line;
+  // void print_usage(std::ostream& out)
+  // {
+  //   const uint wrap_column = 80;
+  //   std::ostringstream opts_line;
 
-    out << "Usage: " << _progname << " [options]\n";
-  }
+  //   out << "Usage: " << _progname << " [options]\n";
+  //   // <<
+  //   for (auto&& gr: _option_groups) {
+  //     out << ' ' << gr.description << ":\n";
+  //     for (auto&& opt: gr.options) {
+  //       if (/* has short version ch */)
+  //         out << "  "           // indent 2
+  //             << '-' << ch << ',';
+  //       else
+  //         out << "     ";       // indent 5
+  //       out << " --" << name;
+  //       // line up descriptions
+  //       out << '\n';
+  //     }
+  //   }
+  // }
 };
 
 }
