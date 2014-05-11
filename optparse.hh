@@ -1,22 +1,25 @@
 /****************************************
- ** \file       util/optparse.hh
+ ** \file       optparse.hh
  ** \brief      Program option parser.
  */
 
-#ifndef UTIL_OPTPARSE_HH
-#define UTIL_OPTPARSE_HH
+#ifndef OPTPARSE_HH
+#define OPTPARSE_HH
 
+#include <cstdlib>
 #include <cstring>
-#include <cassert>
 
-#include <stdexcept>
+#include <string>
 #include <map>
-#include <iterator>
-#include <algorithm>
 #include <functional>
+#include <iterator>
+#include <stdexcept>
+#include <algorithm>
 #include <sstream>
+#include <iostream>
 
 #ifdef DEBUG
+#include <cassert>
 #include "util/io.hh"
 #define OPTP_DEBUG_(...) util::println(__VA_ARGS__)
 #define OPTP_DEBUG_ASSERT_(expr, msg) assert(expr && msg)
@@ -28,15 +31,16 @@
 namespace optparse {
 
 using std::string;
-using std::map;
-using std::function;
+using ReturnArguments = std::vector<char*>;
 
 struct Option
 {
   string description;
-  function<void()> handle;
-  function<void(const char*)> handle_param;
+  std::function<void()> handle;
+  std::function<void(const char*)> handle_param;
 };
+
+struct Exit : public std::exception {};
 
 const char option_char = '-';
 const string options_end = "--";
@@ -50,26 +54,39 @@ const char option_name_divider = '|';
 //  parser.add_option("s")
 struct OptionParser
 {
+  using Options = std::map<string, Option>;
+  using AltNames = std::map<string, Option*>;
+  using ShortNames = std::map<char, Option*>;
+
 private:
   string _progname;
-  map<string, Option> _options;
-  map<string, Option*> _alt_names;
-  map<char, Option*> _short_names;
+  Options _options;
+  AltNames _alt_names;
+  ShortNames _short_names;
   
 public:
-  OptionParser(string prog, string help_spec = {}):
-    _progname{prog} {}
+  OptionParser(string prog, bool create_help = true):
+    _progname{prog}
+  {
+    if (create_help)
+      add_option(
+        "help|h", [this] {
+          this->print_usage(std::cout);
+          throw Exit{};
+        }, "Show this help message."
+      );
+  }
   
 private:
   // Parse a single-character argument
   // return the associated option, or null
-  Option* _parse_short(char ch)
+  const Option* _parse_short(char ch) const
   {
     auto it = _short_names.find(ch);
     return it != end(_short_names) ? it->second : nullptr;
   }
 
-  Option* _parse_long(const string& arg)
+  const Option* _parse_long(string const& arg) const
   {
     auto it = _options.find(arg);
     if (it != end(_options))
@@ -82,10 +99,10 @@ private:
 
 public:
   template <class It>
-  std::vector<char*> parse_args(It a, It b)
+  ReturnArguments parse_args(const It a, const It b) const
   {
-    std::vector<char*> unparsed;
-    Option* last_opt = {};
+    ReturnArguments unparsed;
+    const Option* last_opt = {};
     
     for (auto it_arg = a; it_arg != b; ++it_arg) {
       auto const arg = *it_arg;
@@ -100,7 +117,7 @@ public:
         break;
       }
       
-      Option* cur_opt = {};
+      const Option* cur_opt = {};
 
       // first, check if this is an option
       if (arg[0] == option_char && arg[1]) {
@@ -111,8 +128,8 @@ public:
         if (arg[1] == option_char && arg[2]) { // Long
           OPTP_DEBUG_("long: ", arg + 2);
           
-          auto valsep = std::find(arg + 2, argend, value_delimiter);
-          string str{arg + 2, valsep};
+          auto const valsep = std::find(arg + 2, argend, value_delimiter);
+          string const str{arg + 2, valsep};
           auto opt = _parse_long(str);
 
           // TODO: change unknown-handling behavior
@@ -160,7 +177,7 @@ public:
         }
         
       } else {
-        // could just save handler?
+        // last option was saved, it wants this arg
         if (last_opt) {
           OPTP_DEBUG_ASSERT_(last_opt->handle_param, "");
           last_opt->handle_param(arg);
@@ -168,7 +185,7 @@ public:
           unparsed.push_back(arg);
         }
       }
-      // OPTP_DEBUG_(last_opt);
+
       last_opt = cur_opt;
     }
         
@@ -178,22 +195,24 @@ public:
     return unparsed;
   }
   
-  std::vector<char*> parse_args(int argc, char** argv)
+  ReturnArguments parse_argv(int argc, char** argv) const
   {
     return parse_args(argv + 1, argv + argc);
   }
   
-  void parse_args_inplace(int& argc, char**& argv)
+  void parse_argv_inplace(int& argc, char**& argv) const
   {
-    auto unparsed = parse_args(argc, argv);
+    auto unparsed = parse_argv(argc, argv);
     
     copy(begin(unparsed), end(unparsed), argv + 1);
     argc = static_cast<int>(unparsed.size() + 1);
   }
 
+private:
   // invariant:
   //    can't have duplicate option names
   //    can't have empty name
+  //    names must be validated - TODO
   void _add_option(string name, Option opt)
   {
     std::vector<string> names;
@@ -232,13 +251,14 @@ public:
     
     OPTP_DEBUG_(_options);
   }
-  
-  void add_option(string name, function<void()> fn, string desc = {})
+
+public:
+  void add_option(string name, std::function<void()> fn, string desc = {})
   {
     _add_option(name, Option{desc, fn, {}});
   }
 
-  void add_option(string name, function<void(const char*)> fn, string desc = {})
+  void add_option(string name, std::function<void(const char*)> fn, string desc = {})
   {
     _add_option(name, Option{desc, {}, fn});
   }
@@ -249,31 +269,58 @@ public:
     auto store_fn = [store](const char* p) {
       std::istringstream in{p};
       in >> *store;
+      if (in.fail())
+        throw std::runtime_error{"failed to parse parameter: " + in.str()};
     };
     add_option(name, store_fn, desc);
   }
   
-  // void print_usage(std::ostream& out)
-  // {
-  //   const uint wrap_column = 80;
-  //   std::ostringstream opts_line;
+  void print_usage(std::ostream& out) const
+  {
+    uint const column_wrap = 80;
+    uint const column_desc = 30;
+    
+    out << "Usage: " << _progname << " [options]\n";
 
-  //   out << "Usage: " << _progname << " [options]\n";
-  //   // <<
-  //   for (auto&& gr: _option_groups) {
-  //     out << ' ' << gr.description << ":\n";
-  //     for (auto&& opt: gr.options) {
-  //       if (/* has short version ch */)
-  //         out << "  "           // indent 2
-  //             << '-' << ch << ',';
-  //       else
-  //         out << "     ";       // indent 5
-  //       out << " --" << name;
-  //       // line up descriptions
-  //       out << '\n';
-  //     }
-  //   }
-  // }
+    // for (auto&& gr: _option_groups) {
+    //   out << ' ' << gr.description << ":\n";
+    //   for (auto&& e: gr.options) {
+    for (auto& e: _options) {
+      char short_name{};
+      {
+        auto it = find_if(
+          begin(_short_names), end(_short_names),
+          [&](const ShortNames::value_type& p) {return p.second == &e.second;}
+        );
+        if (it != end(_short_names))
+          short_name = it->first;
+      }
+      
+      std::ostringstream line;
+      if (short_name)
+        // indent 2, add short opt
+        line << "  " << '-' << short_name << ',';
+      else
+        // indent 5
+        line << "     ";
+      line << " --" << e.first;
+      if (line.str().size() > column_desc)
+        line << '\n';
+
+      // line up description text
+      // for (auto desc_text = e.second.description;
+      //      !desc_text.empty();
+      //      line = std::ostringstream{}) {
+        
+      //   auto const str = line.str();
+        
+      //     out << line << '\n';
+      //   line.();
+      // }
+      
+    }
+    // }
+  }
 };
 
 }
