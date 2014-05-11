@@ -80,26 +80,28 @@ private:
   }
 
 public:
-  std::vector<char*> parse_args(int argc, char** argv)
+  template <class It>
+  std::vector<char*> parse_args(It a, It b)
   {
     std::vector<char*> unparsed;
     Option* last_opt = {};
     
-    for (int idx_arg = 1; idx_arg < argc; ++idx_arg) {
-      Option* cur_opt = {};
-      
-      auto const arg = argv[idx_arg];
+    for (auto it_arg = a; it_arg != b; ++it_arg) {
+      auto const arg = *it_arg;
       auto const argend = arg + std::strlen(arg);
-      
-      OPTP_DEBUG_("arg ", idx_arg, '/', argc, ": \"", arg, '"');
+      OPTP_DEBUG_(
+        "arg ", std::distance(a, it_arg), '/', std::distance(a, b), ": \"", arg, '"'
+      );
 
       // if we are done, copy rest to unparsed
       if (arg == options_end) {
-        copy(argv + idx_arg, argv + argc, back_inserter(unparsed));
+        copy(it_arg, b, back_inserter(unparsed));
         break;
       }
+      
+      Option* cur_opt = {};
 
-      // 1: check if this is an option
+      // first, check if this is an option
       if (arg[0] == option_char && arg[1]) {
         
         if (last_opt)
@@ -175,12 +177,17 @@ public:
     return unparsed;
   }
   
+  std::vector<char*> parse_args(int argc, char** argv)
+  {
+    return parse_args(argv + 1, argv + argc);
+  }
+  
   void parse_args_inplace(int& argc, char**& argv)
   {
     auto unparsed = parse_args(argc, argv);
     
-    copy(begin(unparsed), end(unparsed), argv);
-    argc = static_cast<int>(unparsed.size());
+    copy(begin(unparsed), end(unparsed), argv + 1);
+    argc = static_cast<int>(unparsed.size() + 1);
   }
 
   // invariant:
@@ -245,10 +252,14 @@ public:
     add_option(name, store_fn, desc);
   }
   
-  // void print_usage(std::ostream& out)
-  // {
-  //   out << "Usage: " << _progname << "[options]\n";
-  // }
+  void print_usage(std::ostream& out)
+  {
+    const uint wrap_column = 80;
+    
+    std::ostringstream opts_line;
+
+    out << "Usage: " << _progname << " [options]\n";
+  }
 };
 
 }
