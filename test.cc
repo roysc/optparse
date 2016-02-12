@@ -12,17 +12,15 @@ int main(int argc, char* argv[])
   std::string f;
   int ru{}, rd{};
   double d{};
-  optparse::OptionParser p{__FILE__};
-  
   auto roundup = [&](const char* a) {ru = std::ceil(std::stod(a));};
   auto rounddown = [&](const char* a) {rd = std::floor(std::stod(a));};
   
-  // p.add_option("f", &f);
-  p.add_option("dub", &d, "A double");
-  p.add_option("up", roundup, "Round up");
-  p.add_option("down|d", rounddown);
-  p.add_option("b|p|q", []{ println("!!"); }, "Super cool");
-  p.add_option("file|in|f", &f);
+  auto const p = optparse::OptionParser(__FILE__)
+    .add_option("dub", &d, "A double")
+    .add_option("up", roundup, "Round up")
+    .add_option("down|d", rounddown)
+    .add_option("b|p|q", []{ println("!!"); }, "Super cool")
+    .add_option("file|in|f", &f);
 
   optparse::ReturnArguments rest;
   try {

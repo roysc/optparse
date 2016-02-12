@@ -38,6 +38,9 @@ struct Option
   string description;
   std::function<void()> handle;
   std::function<void(const char*)> handle_param;
+
+  friend std::ostream& operator<<(std::ostream& out, const Option& o)
+  { return out << "Option{" << o.description << "}"; }
 };
 
 struct Exit : public std::exception {};
@@ -152,12 +155,11 @@ public:
           }
           
         } else {                // Short
-          OPTP_DEBUG_("short: ", arg[1]);
-          
           // assume bundled
           // stop when param is expected, or at end of arg
           for (auto pos = arg + 1; *pos; ++pos) {
-            
+            OPTP_DEBUG_("short: ", pos[0]);
+          
             auto opt = _parse_short(*pos);
             if (!opt) throw std::runtime_error{string{"unknown argument: "} + *pos};
             
@@ -215,11 +217,13 @@ private:
   //    names must be validated - TODO
   void _add_option(string name, Option opt)
   {
+    OPTP_DEBUG_("adding option: \"", name, '"');
     std::vector<string> names;
     do {
       auto pos = name.find(option_name_divider);
       auto n = name.substr(0, pos);
-
+      OPTP_DEBUG_("partial option name: ", n);
+      
       if (n.empty())
         throw std::invalid_argument{"option name cannot be empty"};
       if (count(begin(names), end(names), name))
@@ -253,18 +257,20 @@ private:
   }
 
 public:
-  void add_option(string name, std::function<void()> fn, string desc = {})
+  OptionParser& add_option(string name, std::function<void()> fn, string desc = {})
   {
     _add_option(name, Option{desc, fn, {}});
+    return *this;
   }
 
-  void add_option(string name, std::function<void(const char*)> fn, string desc = {})
+  OptionParser& add_option(string name, std::function<void(const char*)> fn, string desc = {})
   {
     _add_option(name, Option{desc, {}, fn});
+    return *this;
   }
 
   template <class T>
-  void add_option(string name, T* store, string desc = {})
+  OptionParser& add_option(string name, T* store, string desc = {})
   {
     auto store_fn = [store](const char* p) {
       std::istringstream in{p};
@@ -272,7 +278,8 @@ public:
       if (in.fail())
         throw std::runtime_error{"failed to parse parameter: " + in.str()};
     };
-    add_option(name, store_fn, desc);
+    _add_option(name, Option{desc, {}, store_fn});
+    return *this;
   }
   
   void print_usage(std::ostream& out) const
@@ -285,7 +292,7 @@ public:
     // for (auto&& gr: _option_groups) {
     //   out << ' ' << gr.description << ":\n";
     //   for (auto&& e: gr.options) {
-    for (auto& e: _options) {
+    for (auto&& e: _options) {
       char short_name{};
       {
         auto it = find_if(
